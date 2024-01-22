@@ -23,6 +23,7 @@ import logging
 from sklearn import preprocessing
 import librosa
 from utils.log import *
+import pickle
 
 
 # HEADER DEF, 9 bits, but no.9 bit we don't use
@@ -31,7 +32,7 @@ HEADER_SPLIT_FINISH =       0b00000010               # split data chunk [FINISH]
 HEADER_COMBINER_DATA =      0b00000100               # combiner data chunk [DATA]
 HEADER_COMBINER_FINISH =    0b00001000               # combiner data chunk [FINISH]
 HEADER_INIT =               0b00010000               # first chunk: meta data(init_setting)
-HEADER_DATA =               0b00100000               # data chunk: X matrix 
+HEADER_DATA =               0b00100000               # data chunk: X matrix
 HEADER_FINISH =             0b01000000               # last chunk
 HEADER_CLEAR_CACHE =        0b10000000               # clear cache command
 
@@ -186,29 +187,10 @@ class ChunkHandler():
         return self.initial_chunk(HEADER_INIT, pickle.dumps(init_settings))
 
     def get_chunks_fc(self, data):
-        """
-            Get the chunks[lists] for from the data[str]
-        
-            From data to chunks, if len(data) > MTU, then split it,
-            HEADER_INIT in the first chunk and follows chunks with 
-            HEADER_DATA, the last chunkadd HEADER_FINISH.
-        """
         chunk_arr = self._get_substream_arr(pickle.dumps(data), MTU)
         ret = []
-        first_iteration = True
-        
         for chunk in chunk_arr:
-            print("chunk: ", chunk)
-            if first_iteration:
-                # 1 start with HEADER_INIT
-                print("first_iteration: ", first_iteration)
-                ret.append(self.initial_chunk(HEADER_INIT, chunk, None))
-                first_iteration = False
-            else:
-                # 2-end with HEADER_DATA
-                ret.append(self.initial_chunk(HEADER_DATA, chunk, None))
-        
-        # the last pkt with HEADER_FINISH
+            ret.append(self.initial_chunk(HEADER_DATA, chunk, None))
         ret[-1] = bytes([HEADER_FINISH]) + ret[-1][1:]
         return ret
 

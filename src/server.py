@@ -1,5 +1,9 @@
-import argparse
+"""
+This server only receives the data from the client and print it out
+The VNF will have process the data function
+"""
 
+import argparse
 from simpleemu.simpleudp import simpleudp
 from simpleemu.simpletcp import simpletcp
 from simpleemu.simplecoin import SimpleCOIN
@@ -16,8 +20,7 @@ UDPNUM = 17
 svm_buffer = SVMBuffer(max_size=102400)
 svm_processed = False
 
-DEF_INIT_SETTINGS = {'is_finish': False, 'm': np.inf, 'W': None, 'proc_len': np.inf,
-                     'proc_len_multiplier': 2, 'node_max_ext_nums': [np.inf]}
+DEF_INIT_SETTINGS = {'is_finish': False, 'm': np.inf, 'W': None, 'proc_len': np.inf, 'proc_len_multiplier': 2, 'node_max_ext_nums': [np.inf]}
 init_settings = {}
 init_settings.update(DEF_INIT_SETTINGS)
 
@@ -27,8 +30,6 @@ def contains_non_zero_one(numbers):
             return True
     return False
 
-# already_load_svm_model = False
-# _weight, _intercept = load_svm_model('./svm_model.joblib')
 _weight = [
     4.46737612, -1.95081422, 18.29293572, -4.5986548, -15.89973802,
     4.45173662, -6.66900044, 11.41212648, 12.09920262, -27.9301321,
@@ -37,8 +38,7 @@ _weight = [
 ]
 _intercept = -0.39625843
 
-
-# Network
+# network
 serverAddressPort = ("10.0.0.30", 9999)
 clientAddressPort = ("10.0.0.10", 9999)
 
@@ -52,36 +52,35 @@ args = parser.parse_args() # to parse command line arguments to determine which 
 if args.protocol in ["udp", "u"]:
     protocol = "udp"
     simple = simpleudp
-    pro_num = UDPNUM
+    pro_num = 17
 else:
     protocol = "tcp"
     simple = simpletcp
     simple.listen(serverAddressPort)
-    pro_num = TCPNUM
+    pro_num = 6
 
-# NetworkSetting
+# network setting
 ifce_name, node_ip = simple.get_local_ifce_ip('10.0.')
-# log_file(ifce_name).debug(f"ifce_name = {ifce_name}, node_ip = {node_ip}")
 
-# Simple coin, setup network interface and process
+# simple coin, setup network interface and process
 app = SimpleCOIN(ifce_name=ifce_name, n_func_process=2, lightweight_mode=True)
 
 pkts_payload = bytearray()
 result = []
 
-@app.main() # main function
+# main function
+@app.main()
 def main(simplecoin: SimpleCOIN.IPC, af_packet: bytes):
     global pro_num, first, pkts_payload, svm_buffer
-    
-    if pro_num == TCPNUM:
-        # No precess for TCP (not finished yet)
+
+    if pro_num == TCPNUM: # TCP is not supported yet
         print('*** TCP is not supported yet!')
         conn, addr = simple.accept(serverAddressPort)
         first = False
 
     if pro_num == UDPNUM:
         packet = simple.parse_af_packet(af_packet)
-        if packet['Protocol'] == UDPNUM and packet['IP_src'] != node_ip: 
+        if packet['Protocol'] == UDPNUM and packet['IP_src'] != node_ip:
             chunk = packet['Chunk']
             header = int(chunk[0])
             if header == HEADER_CLEAR_CACHE:
@@ -103,35 +102,40 @@ def main(simplecoin: SimpleCOIN.IPC, af_packet: bytes):
 
                 pkts_payload = bytearray() # reset pkts_payload
 
-                # 这里使用多线程，因为如果使用单线程，那么在这里就会阻塞，导致后面的数据无法快速接收
-                # 然而，这里有问题。pid=-1不使用多线程。
-                simplecoin.submit_func(pid=-1, id='svm_service')
+                # here should use multi-threading, it will block, causing the later data cannot be received quickly if using single-threading
+                simplecoin.submit_func(pid=-1, id='printout') # pid=-1 means use single-threading
             else:
                 print('*** header else!')
                 pass
 
-@app.func('svm_service')
+@app.func(id='printout')
 def fastica_service(simplecoin: SimpleCOIN.IPC):
-    global svm_buffer, svm_processed, _weight, _intercept, result          
+    global svm_buffer, svm_processed, _weight, _intercept, result
     if svm_buffer.size() >= 1:
-
-        joined_string:str = svm_buffer.pop()
-        
+        joined_string = svm_buffer.pop()
         print(f"joined_string: {joined_string}")
 
-        if "#" in joined_string:
-            # the # is used to split the rows
-            csv_list = joined_string.split("#")
-            data = np.array([list(map(float, row.split(','))) for row in csv_list])
+@app.func(id='svm_service')
+def fastica_service(simplecoin: SimpleCOIN.IPC):
+    global svm_buffer, svm_processed, _weight, _intercept, result
+    if svm_buffer.size() >= 1:
+        joined_string = svm_buffer.pop()
+        print(f"joined_string: {joined_string}")
+
+        if "#" in joined_string: # split the string by '#' and convert to float
+            split_list = joined_string.split('#') # split the string by '#'
+            split_list = [float(i) for i in split_list] # convert to float
         else:
-            # alone row
-            data = [np.array([float(item) for item in joined_string.split(",")])]
-        
-        for csv_one_line in data:
-            # svm process
-            res_one_line = np.dot(csv_one_line, _weight) + _intercept
-            res_final = 1 if res_one_line > 0 else 0
-            result.append(res_final)
+            split_list = [float(joined_string)]
+
+        if contains_non_zero_one(split_list):
+            return
+
+        # calculate the accuracy
+        zero_count = split_list.count(0)
+        total_count = len(split_list)
+        ratio = zero_count / total_count * 100 if total_count > 0 else 0
+        print(f"The current SCORE: {ratio} %")
 
 if __name__ == "__main__":
     app.run()

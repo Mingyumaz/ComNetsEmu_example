@@ -308,7 +308,7 @@ class SimpleCOIN():
 
         def sendto(self, data: bytes, dst_addr: Tuple[str, int]):
             self.__send('udp', data, dst_addr)
-    
+
     IPC.register(IPCLite)
 
     # The body

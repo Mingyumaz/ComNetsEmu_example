@@ -31,12 +31,23 @@ ifce_name, node_ip = simple.get_local_ifce_ip('10.0')
 # Simple coin
 app = SimpleCOIN(ifce_name=ifce_name, n_func_process=1, lightweight_mode=True)
 
+
 @app.main()
 def main(simplecoin: SimpleCOIN.IPC, af_packet: bytes):
     global pro_num
     packet = simple.parse_af_packet(af_packet)
+    # check if the packet is UDP and not from the server
     if packet['Protocol'] == pro_num and packet['IP_src'] != node_ip:
-        print("forwarding")
-        simplecoin.forward(af_packet)
+            # parse the packet and calculate the square
+            random_number = int(packet['Chunk'].decode())
+            squared_number = random_number ** 2
+            print(f"Received number: {random_number}, Squared: {squared_number}")
+
+            # prepare the new packet and send it to the server
+            squared_number_bytes = str(squared_number).encode()  # turn the squared number into bytes
+            af_packet_chunk = chunk_handler.get_chunks_fc(squared_number_bytes)
+            af_packet = b''.join(af_packet_chunk) # join the chunks
+            print("forwarding")
+            simplecoin.forward(af_packet)
 
 app.run()

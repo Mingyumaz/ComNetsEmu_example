@@ -49,6 +49,7 @@ if __name__ == "__main__":
 
     topo.addController(node_name='c0')
 
+
     topo.addHostNodes(node_names=['client', 'server'],
                         ip_prefix='10.0.0.', ip_suffixes=['10', '30'],
                         dimage='simple_dev:1.0', volume=None,
@@ -73,13 +74,13 @@ if __name__ == "__main__":
     net.delFlowsOnSwitches(node_names=list(
         map(lambda x: 's'+str(x), range(n_vnf))))
     # add flows
-    # net.addFlowsOnSwitch(proto='udp', flows=['client - s0-vnf0-s0-s1-vnf1-s1-s2-vnf2-s2-server', 'server - s2-s1-s0-client'])
+    net.addFlowsOnSwitch(proto='udp', flows=['client - s0-vnf0-s0-s1-vnf1-s1-s2-vnf2-s2-server', 'server - s2-s1-s0-client'])
     
-    net.addFlowsOnSwitch(proto='udp', flows=[
-                           'client - ' +
-                           ''.join(list(map(lambda x: 's'+str(x)+'-vnf' +
-                                            str(x)+'-s'+str(x)+'-', range(n_vnf))))+'server',
-                           'server - '+''.join(list(map(lambda x: 's'+str(x)+'-', reversed(range(n_vnf)))))+'client'])
+    # net.addFlowsOnSwitch(proto='udp', flows=[
+    #                        'client - ' +
+    #                        ''.join(list(map(lambda x: 's'+str(x)+'-vnf' +
+    #                                         str(x)+'-s'+str(x)+'-', range(n_vnf))))+'server',
+    #                        'server - '+''.join(list(map(lambda x: 's'+str(x)+'-', reversed(range(n_vnf)))))+'client'])
     
     # disable checksum, `node_nameports = ['switch_name:port_name',...]``
     net.disableSwitchCksums(node_nameports=list(
