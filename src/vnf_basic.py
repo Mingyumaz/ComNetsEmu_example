@@ -7,9 +7,11 @@ from utils.packet import *
 from utils.log import *
 from joblib import load
 from svmbuffer import SVMBuffer
+from pkts_queue import DictBuffer
 import pickle
 import io
 import time
+import threading
 
 ##################################################
 # Init paratmeters
@@ -18,6 +20,12 @@ UDPNUM = 17
 
 sync_queue_in = SVMBuffer(max_size=102400)
 sync_queue_out = SVMBuffer(max_size=102400)
+pkt_queue = DictBuffer(max_size=102400)
+NULLPALYLOAD = b''
+pkts_tag = []
+pkts_num = 0
+pkts_lock = threading.Lock()
+
 svm_processed = False
 
 DEF_INIT_SETTINGS = {'is_finish': False, 'm': np.inf, 'W': None, 'proc_len': np.inf, 'proc_len_multiplier': 2, 'node_max_ext_nums': [np.inf]}
@@ -88,14 +96,13 @@ num = args.num # set the function number of the vnf
 ifce_name, node_ip = simple.get_local_ifce_ip('10.0')
 
 # simple coin
-app = SimpleCOIN(ifce_name=ifce_name, n_func_process=2, lightweight_mode=True)
+app = SimpleCOIN(ifce_name=ifce_name, n_func_process=1, lightweight_mode=True)
 
 pkts_payload = bytearray()
 
 @app.main()
 def main(simplecoin: SimpleCOIN.IPC, af_packet: bytes):
-    global pro_num, first, pkts_payload, sync_queue_in
-
+    global pro_num, first, pkts_payload, sync_queue_in, pkts_num, pkts_tag, pkt_queue, pkts_lock
     if pro_num == TCPNUM:
         print('*** TCP is not supported yet!')
         conn, addr = simple.accept(serverAddressPort)
@@ -105,32 +112,53 @@ def main(simplecoin: SimpleCOIN.IPC, af_packet: bytes):
         packet = simple.parse_af_packet(af_packet)
         if packet['Protocol'] == UDPNUM and packet['IP_src'] != node_ip:
             chunk = packet['Chunk']
+            
+            # 其中包含数据的包
             header = int(chunk[0])
+            pkts_num += 1
+            
             if header == HEADER_CLEAR_CACHE:
                 print('*** clearing cache!')
 
             elif header == HEADER_INIT:
                 print('*** initializing!')
-                pkts_payload += chunk[1:]
+                # save the pkts header
+                packet['Chunk']:dict = NULLPALYLOAD
+                pkt_queue.put(packet) 
 
             elif header == HEADER_DATA:
                 print('*** header data!')
+                # save the pkts payload
                 pkts_payload += chunk[1:]
+                
+                # save the pkts header
+                packet['Chunk']:dict = NULLPALYLOAD
+                pkt_queue.put(packet)
 
             elif header == HEADER_FINISH:
                 print('*** header finish!')
+                
+                # save the pkts payload, transform to string save to queuebuffer
                 pkts_payload += chunk[1:]
                 pkts_payload = pickle.load(io.BytesIO(pkts_payload)).decode('utf-8')
                 sync_queue_in.put(pkts_payload)
-
                 pkts_payload = bytearray() # reset pkts_payload
+                
+                # save the pkts header
+                packet['Chunk']:dict = NULLPALYLOAD
+                pkt_queue.put(packet)
+
+                with pkts_lock:
+                    pkts_tag.append(pkts_num) # tag for the pkts header
+                    pkts_num = 0
 
                 # here should use multi-threading, it will block, causing the later data cannot be received quickly if using single-threading
                 simplecoin.submit_func(pid=-1, id='svm_service', args=(af_packet,)) # pid=-1 means use single-threading
+
             else:
                 print('*** header else!')
                 pass
-
+          
 @app.func(id='svm_service')
 def svm_service(simplecoin: SimpleCOIN.IPC, af_packet: bytes):
     # the function of receive is in the main function, split the recv and send, calculation time is less than send time
@@ -140,6 +168,9 @@ def svm_service(simplecoin: SimpleCOIN.IPC, af_packet: bytes):
 
     if packet['Protocol'] == pro_num and packet['IP_src'] != node_ip:
         print("run with vnf ", num)
+
+
+        print(f"current_vnf: {current_vnf}, =========== {pkts_tag}, {pkts_num}, {pkt_queue.size()}")
         if   num == 1:
             current_vnf = VNF1PROCESSNUM
         elif num == 2:
@@ -151,7 +182,7 @@ def svm_service(simplecoin: SimpleCOIN.IPC, af_packet: bytes):
             result = ""
             joined_string:str = sync_queue_in.pop()
             
-            print(f"joined_string: {joined_string}")
+            # print(f"joined_string: {joined_string}")
 
             rows = joined_string.split('@')# 按@分割得到每一行
             nested_list = []
@@ -161,7 +192,7 @@ def svm_service(simplecoin: SimpleCOIN.IPC, af_packet: bytes):
                 row_list = [np.array(part.split(','), dtype=float) for part in parts] # 将每个部分转换为NumPy数组，并加入到行列表中
                 nested_list.append(row_list) # 将行列表加入到最终列表中
             
-            print(f"nested_list: {nested_list}")
+            # print(f"nested_list: {nested_list}")
 
 
             # (为下面这个循环处理解释) 这里收到的数据将会是这样：
@@ -199,10 +230,12 @@ def svm_service(simplecoin: SimpleCOIN.IPC, af_packet: bytes):
                         result += str(res_one_line) + "#"
                     else:
                         result += ','.join(map(str, csv_one_line[i])) + "#"
-                result = result[:-1] + "@" # add @ to split the rows in last columns
+                result = result[:-1] + "@" # add @ to split the rows in last columns            
             
+            result = result[:-1] # remove the last @
+
             sync_queue_out.put(result)
-            print(f"result: {result}")
+            # print(f"result: {result}")
 
             simplecoin.submit_func(pid=-1, id='send_packet')
 
@@ -220,19 +253,42 @@ def send_packet(simplecoin: SimpleCOIN.IPC,):
     """
     Format with pickle, take the pkts from sync_queue_out and send with udp
     """
-    global sync_queue_out, svm_processed, _weight, _intercept, serverAddressPort
+    global sync_queue_out, pkt_queue
 
     if sync_queue_out.size() >= 1:
         joined_string:str = sync_queue_out.pop()
-        print(f"joined_string: {joined_string}")
 
-        formatted_chunk:bytes = str(joined_string).encode()
-        chunk_arr:list = chunk_handler.get_chunks_fc(formatted_chunk)
+        with pkts_lock:
+            pkts_number = pkts_tag.pop(0)
+        
+        print(f"======= pkts_number for one process: {pkts_number} <= pkt_queue size: {pkt_queue.size()}")
+        if pkts_number <= pkt_queue.size():
 
-        # recreate the packet by vnf and send to server
-        for chunk in chunk_arr:
-            time.sleep(0.1)
-            simple.sendto(chunk, serverAddressPort)
+            formatted_chunk:bytes = str(joined_string).encode()
+            chunk_arr:list = chunk_handler.get_chunks_fc(formatted_chunk)
+
+            print(f"======= chunk number: {len(chunk_arr)}")
+
+            # recreate the packet by vnf and send to server
+            pkts_list: list = pkt_queue.pop_n(pkts_number)
+
+            print(f"======= pkts header number: {pkts_number}")
+            j = 0
+            for i in range(pkts_number):
+                if i < pkts_number - len(chunk_arr):
+                    # without payload, just modify the header to HEADER_INIT
+                    pkts_list[i]['Chunk']= bytes([HEADER_INIT]) # send the null pkts
+                else:
+                    # without modify the header, just send the data
+                    pkts_list[i]['Chunk'] = chunk_arr[j] # replay with calculated payload
+                    j+=1
+                print(f"forwarding {i}")
+                af_packet_new:bytes = simple.recreate_af_packet_by_chunk(pkts_list[i])
+                simplecoin.forward(af_packet_new)
+            
+            print(f"======= after send out, pkt_queue size: {pkt_queue.size()}")
+        else:
+            print("ERROR: pkts_number > pkt_queue.size()")
 
 if __name__ == "__main__":
     app.run()

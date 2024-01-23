@@ -83,7 +83,7 @@ for formatted_chunk in read_and_format_csv('test_file.csv', READLINE):
     print(f"chunk_arr: {len(chunk_arr)}")
     
     for chunk in chunk_arr:
-            time.sleep(0.005)
+            time.sleep(0.1)
             simple.sendto(chunk, serverAddressPort)
 
     if protocol == "tcp":
