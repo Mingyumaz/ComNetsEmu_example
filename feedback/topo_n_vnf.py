@@ -48,29 +48,57 @@ if __name__ == "__main__":
     topo = SimpleTopo()
 
     topo.addController(node_name='c0')
-
-
-    # topo.addHostNodes(node_names=['client', 'server'],
-    #                     ip_prefix='10.0.0.', ip_suffixes=['10', '30'],
-    #                     dimage='simple_dev:1.0', volume=None,
-    #                     docker_args={"cpuset_cpus": '0', 'cpu_quota': 30000})
+    
     topo.addHostNodes(node_names=['client', 'server'],
                         ip_prefix='10.0.0.', ip_suffixes=['10', '30'],
                         dimage='simple_dev:1.3', volume=None,
-                        docker_args={"cpuset_cpus": '0', 'cpu_quota': 30000})
+                        docker_args={"cpuset_cpus": '0-1', 
+                                     "cpu_period": 100000, 
+                                     'cpu_quota': -1}) # `cpu_quota` is the percentage of the CPU, 100000 is 100%
+    
+    # 每个vnf占用1个cpu核心
+    # for i in range(n_vnf):
+    #     topo.addHostNodes(node_names=['vnf'+ str(i)],
+    #                         ip_prefix='10.0.0.', ip_suffixes=[str(i+11)],
+    #                         dimage='simple_dev:1.0', volume=None,
+    #                         docker_args={"cpuset_cpus": str(i+2), 
+    #                                      "cpu_period": 100000,
+    #                                      'cpu_quota': -1}) # `cpu_quota` is the percentage of the CPU, 100000 is 100%
+
+    # 每个vnf占用3个cpu核心，测试发现可能CPU在3个核心上，SVM不会吃满（单CPU会80%占用）
     for i in range(n_vnf):
         topo.addHostNodes(node_names=['vnf'+ str(i)],
                             ip_prefix='10.0.0.', ip_suffixes=[str(i+11)],
                             dimage='simple_dev:1.0', volume=None,
-                            docker_args={"cpuset_cpus": str(i//3+1), 'cpu_quota': 30000})
+                            docker_args={"cpuset_cpus": (str(i*3+2) + "-" + str(i*3+4)), 
+                                         "cpu_period": 100000,
+                                         'cpu_quota': -1}) # `cpu_quota` is the percentage of the CPU, 100000 is 100%
 
 
     topo.addSwitchNodes(node_names=list(
         map(lambda x: 's'+str(x), range(n_vnf))))
     
     # create links, `bw` is bandwith, unit of bandwith is 'Mbit/s'
-    topo.addLinks(links=['client - '+''.join(list(map(lambda x: 's'+str(x)+'-', range(n_vnf))))+'server'] +
-                    list(map(lambda x: 's'+str(x)+'-'+'vnf'+str(x), range(n_vnf))), bw=1000, delay='10ms', use_htb=True)
+    # topo.addLinks(links=['client - '+''.join(list(map(lambda x: 's'+str(x)+'-', range(n_vnf))))+'server'] +
+    #                 list(map(lambda x: 's'+str(x)+'-'+'vnf'+str(x), range(n_vnf))), bw=1000, delay='10ms', use_htb=True)
+    
+    # 这样会为每条链路设置延迟，但是我们不希望vnf和switch之间有延迟。
+    # topo.addLinks(links=['client - s0-s1-s2-server'] + ['s0-vnf0', 's1-vnf1', 's2-vnf2'], 
+    #               bw=1000, 
+    #               delay='10ms', 
+    #               use_htb=True)
+    
+    # 首先，为需要设置延迟的链路调用 addLinks 方法
+    topo.addLinks(links=['client - s0-s1-s2-server'], 
+                bw=1000, 
+                delay='10ms', 
+                use_htb=True)
+
+    # 然后，为不需要设置延迟的链路调用 addLinks 方法，不指定 delay 参数
+    topo.addLinks(links=['s0-vnf0', 's1-vnf1', 's2-vnf2'], 
+                bw=1000, 
+                use_htb=True)
+
     net = topo.startNetwork()
     
     ## network settings ##
