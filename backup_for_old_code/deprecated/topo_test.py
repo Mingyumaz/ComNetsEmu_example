@@ -1,0 +1,92 @@
+import argparse
+from simpleemu.simpletopo import SimpleTopo
+
+#!/usr/bin/env python3
+# -*- encoding: utf-8 -*-
+'''
+@File    :   topo_n_vnf.py
+@Time    :   2022/03/19 20:28:59
+@Author  :   Jiakang Weng
+@Version :   1.0
+@Contact :   jiakang.weng@mailbox.tu-dresden.de
+@License :   (C)Copyright 2021-2022
+@Desc    :   Yoho topo n vnf
+'''
+# you can check this link to know how list(map(lambda)) works:
+# ------------------------------------------------------------------
+# | https://blog.csdn.net/stay_foolish12/article/details/107160831 |
+# ------------------------------------------------------------------
+
+
+
+def set_args(args):
+    global n_vnf
+    n_vnf = args.vnf
+
+if __name__ == "__main__":
+    # argparse setting
+    parser = argparse.ArgumentParser(description="Topo vnf setting.")
+
+    parser.add_argument(
+        "--vnf",
+        type=int,
+        default=1,
+        help="The number of vnfs."
+    )
+
+    parser.set_defaults(func=set_args)
+    args = parser.parse_args()
+    args.func(args)
+    print("*** VNF Number:",n_vnf)
+
+    # global value & function
+    n_vnf = 1
+
+    # start SimpleTopo
+    topo = SimpleTopo()
+
+    topo.addController(node_name='c0')
+
+
+    # topo.addHostNodes(node_names=['client', 'server'],
+    #                     ip_prefix='10.0.0.', ip_suffixes=['10', '30'],
+    #                     dimage='simple_dev:1.0', volume=None,
+    #                     docker_args={"cpuset_cpus": '0', 'cpu_quota': 30000})
+    topo.addHostNodes(node_names=['client', 'server'],
+                        ip_prefix='10.0.0.', ip_suffixes=['10', '30'],
+                        dimage='simple_dev:1.3', volume=None,
+                        docker_args={"cpuset_cpus": '0', 'cpu_quota': 30000})
+    for i in range(n_vnf):
+        topo.addHostNodes(node_names=['vnf'+ str(i)],
+                            ip_prefix='10.0.0.', ip_suffixes=[str(i+11)],
+                            dimage='simple_dev:1.0', volume=None,
+                            docker_args={"cpuset_cpus": str(i//3+1), 'cpu_quota': 30000})
+
+
+    topo.addSwitchNodes(node_names=list(
+        map(lambda x: 's'+str(x), range(n_vnf))))
+    
+    # create links, `bw` is bandwith, unit of bandwith is 'Mbit/s'
+    # topo.addLinks(links=['client - '+''.join(list(map(lambda x: 's'+str(x)+'-', range(n_vnf))))+'server'] +
+    #                 list(map(lambda x: 's'+str(x)+'-'+'vnf'+str(x), range(n_vnf))), bw=1000, delay='10ms', use_htb=True)
+    
+    topo.addLinks(links=["client - s0-server", "s0-vnf0"], bw=1000, delay='10ms', use_htb=True)
+    net = topo.startNetwork()
+    
+    ## network settings ##
+    # delete default flows
+    net.delFlowsOnSwitches(node_names=list(
+        map(lambda x: 's'+str(x), range(n_vnf))))
+    # add flows
+    net.addFlowsOnSwitch(proto='udp', flows=['client-s0-vnf0-s0-server', 'server-s0-client'])
+    
+    # net.addFlowsOnSwitch(proto='udp', flows=[
+    #                        'client - ' +
+    #                        ''.join(list(map(lambda x: 's'+str(x)+'-vnf' +
+    #                                         str(x)+'-s'+str(x)+'-', range(n_vnf))))+'server',
+    #                        'server - '+''.join(list(map(lambda x: 's'+str(x)+'-', reversed(range(n_vnf)))))+'client'])
+    
+    # disable checksum, `node_nameports = ['switch_name:port_name',...]``
+    net.disableSwitchCksums(node_nameports=list(
+        map(lambda x: 's'+str(x)+':'+'vnf'+str(x), range(n_vnf))))
+    net.enterCLI()
