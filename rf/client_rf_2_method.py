@@ -9,7 +9,7 @@ from itertools import islice
 MAXLINE = 10000 # 最大发送循环次数，发送行数等于MAXLINE*PROCESS_ROWS
 PKTS_ID = 0 # 当前行数
 PROCESS_ROWS = 3 # 每次处理的行数
-SEND_INTERVAL = 0.003 # 数据包发送间隔
+SEND_INTERVAL = 0.005 # 数据包发送间隔
 VNFNUM = 3
 #===============================================================================
 def read_and_format_csv(filename, chunk_size=1):

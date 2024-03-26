@@ -28,7 +28,11 @@ with open('rf_model.joblib', 'rb') as file:
 # 加载子模型
 models = [joblib.load(f'rf_model_subset_{i}.joblib') for i in range(3)]
 
-# 假设 X_test 是您要预测的数据
+# x = models[0].predict(x_test)
+# print(x)
+# exit()
+# # 假设 X_test 是您要预测的数据
+
 predictions = np.array([model.predict(x_test) for model in models])
 
 print(predictions)

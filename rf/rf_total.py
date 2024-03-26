@@ -8,7 +8,7 @@ from sklearn.preprocessing import MaxAbsScaler
 from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import cross_val_score
 
-re_generate_rf_model = True
+re_generate_rf_model = False
 
 if re_generate_rf_model:
     datatrain1_original = pd.read_csv('/home/mmy/comnets/comnetsemu/examples/yuzhe/ethylene_CO_formatted.csv')
@@ -104,7 +104,7 @@ datatrain = datatrain_original.iloc[:, : 16]
 X_test = np.array(datatrain)
 
 # generate test feature
-x_test = X_test[:, :15]
+x_test = X_test[:, :16]
 
 # generate test label
 y_test = datatrain_original.iloc[:, -1]
